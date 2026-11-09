@@ -105,7 +105,7 @@ $Error.Clear()
                             if ($process.HasExited -or [DateTime]::UtcNow -gt $deadline) { throw 'Cancellation gate not observed' }
                             Start-Sleep -Milliseconds 10
                         }
-                        & /bin/kill -s INT -- $process.Id
+                        & /bin/kill -s INT $process.Id
                         do {
                             if ($process.HasExited -or [DateTime]::UtcNow -gt $deadline) { throw 'Finish not observed after Ctrl+C' }
                             Start-Sleep -Milliseconds 10
@@ -344,7 +344,7 @@ $Error.Clear()
         $result.Output | Should -Match 'LEAK:False'
     }
 
-    It 'Cancels execution after an explicit readiness signal and accepts the next command' -Skip:(!$IsLinux) {
+    It 'Cancels execution after an explicit readiness signal and accepts the next command' -Skip:(!($IsLinux -or $IsMacOS)) {
         $line = '[IO.File]::WriteAllText($env:HOOK_TEST_GATE, "ready"); Start-Sleep -Seconds 30'
         $result = Invoke-HookedConsole -CancelFirst -Lines @($line, "'after cancel'")
         $result.Events.Count | Should -Be 4
@@ -354,7 +354,7 @@ $Error.Clear()
         $result.Output | Should -Match 'after cancel'
     }
 
-    It 'Skips user execution and remaining start handlers when start is cancelled' -Skip:(!$IsLinux) {
+    It 'Skips user execution and remaining start handlers when start is cancelled' -Skip:(!($IsLinux -or $IsMacOS)) {
         $result = Invoke-HookedConsole -Mode CancelStarting -CancelFirst -Lines @("'skipped'", '"CANCELSTATUS:$?"; "after cancel"')
         $result.Events.Count | Should -Be 7
         $result.Events[0].Kind | Should -BeExactly Starting
@@ -367,7 +367,7 @@ $Error.Clear()
         $result.Events[6].Data.Outcome | Should -BeExactly Succeeded
     }
 
-    It 'Preserves the user result and skips remaining finish handlers when finish is cancelled' -Skip:(!$IsLinux) {
+    It 'Preserves the user result and skips remaining finish handlers when finish is cancelled' -Skip:(!($IsLinux -or $IsMacOS)) {
         $result = Invoke-HookedConsole -Mode CancelFinished -CancelFirst -Lines @("'cancel finish'", "'after cancel'")
         $result.Events.Count | Should -Be 7
         $result.Events[2].Data.Outcome | Should -BeExactly Succeeded

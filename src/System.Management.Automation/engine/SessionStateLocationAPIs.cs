@@ -21,13 +21,13 @@ namespace System.Management.Automation
         #region Current working directory/drive
 
         /// <summary>
-        /// Synchronizes the Linux console runspace's filesystem location with process state.
+        /// Synchronizes the Linux/macOS console runspace's filesystem location with process state.
         /// Other runspaces must not change the process-wide directory or environment.
         /// </summary>
         internal void SynchronizeProcessCurrentDirectory()
         {
             Runspace primaryRunspace = Runspace.PrimaryRunspace;
-            if (!Platform.IsLinux || primaryRunspace == null ||
+            if (!(Platform.IsLinux || Platform.IsMacOS) || primaryRunspace == null ||
                 !ReferenceEquals(ExecutionContext.CurrentRunspace, primaryRunspace))
             {
                 return;

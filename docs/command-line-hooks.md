@@ -96,9 +96,9 @@ explicitly and are not written to the terminal automatically.
 
 The automated suite covers feature gating, metadata, errors and parse errors,
 actual native/script/shell exits, callback isolation, registration snapshots,
-nested/parallel exclusions, bounded diagnostics, and Linux cancellation in each
+nested/parallel exclusions, bounded diagnostics, and Unix cancellation in each
 phase using readiness signals. The common tests are written for Windows, Linux
-and macOS; signal delivery tests currently require Linux. Validate the native
+and macOS; signal delivery tests require Linux or macOS. Validate the native
 ConsoleHost and terminal integration on each supported platform before promoting
 this preview API to a stable release.
 
