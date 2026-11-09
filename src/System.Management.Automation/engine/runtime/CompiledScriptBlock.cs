@@ -2398,6 +2398,7 @@ namespace System.Management.Automation
 
                 int exitCode = (int)ee.Argument;
                 this.Context.SetVariable(SpecialVariables.LastExitCodeVarPath, exitCode);
+                this.Context.ConsoleCommandLineExitCodes?.RecordScript(exitCode);
 
                 if (exitCode != 0)
                 {

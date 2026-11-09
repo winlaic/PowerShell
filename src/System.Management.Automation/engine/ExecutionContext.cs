@@ -518,6 +518,12 @@ namespace System.Management.Automation
             EngineSessionState.SetVariable(path, newValue, true, CommandOrigin.Internal);
         }
 
+        // Installed only for the user execution phase of one console submission.
+        internal ConsoleCommandLineExitCodes ConsoleCommandLineExitCodes { get; set; }
+
+        // Isolates automatically recorded callback errors without replacing $Error itself.
+        internal Action<object> ErrorRecordingOverride { get; set; }
+
         internal T GetEnumPreference<T>(VariablePath preferenceVariablePath, T defaultPref, out bool defaultUsed)
         {
             object val = EngineSessionState.GetVariableValue(preferenceVariablePath, out _, out _);
@@ -817,6 +823,12 @@ namespace System.Management.Automation
         /// </exception>
         internal void AppendDollarError(object obj)
         {
+            if (ErrorRecordingOverride != null)
+            {
+                ErrorRecordingOverride(obj);
+                return;
+            }
+
             ErrorRecord objAsErrorRecord = obj as ErrorRecord;
             if (objAsErrorRecord is null && obj is not Exception)
             {

@@ -5,6 +5,7 @@ using System;
 using System.Collections.ObjectModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using System.Threading;
 using System.Management.Automation;
 using System.Management.Automation.Runspaces;
 
@@ -56,6 +57,13 @@ namespace Microsoft.PowerShell
             _isPromptFunctionExecutor = isPromptFunctionExecutor;
             Reset();
         }
+
+        // Used only by the opted-in console lifecycle; ordinary callers keep the old path.
+        internal CancellationToken CommandLineCancellation { get; set; }
+
+        internal Action CommandLineInvoking { get; set; }
+
+        internal PipelineStateInfo LastPipelineState { get; private set; }
 
         #region async
 
@@ -150,6 +158,7 @@ namespace Microsoft.PowerShell
             Dbg.Assert(!useNestedPipelines, "can't async invoke a nested pipeline");
             Dbg.Assert(!string.IsNullOrEmpty(command), "command should have a value");
 
+            LastPipelineState = null;
             bool addToHistory = (options & ExecutionOptions.AddToHistory) > 0;
             Pipeline tempPipeline = _parent.RunspaceRef.CreatePipeline(command, addToHistory, false);
             ExecuteCommandAsyncHelper(tempPipeline, out exceptionThrown, options);
@@ -208,6 +217,8 @@ namespace Microsoft.PowerShell
                     tempPipeline.Input.Close();
                 }
 
+                CommandLineCancellation.ThrowIfCancellationRequested();
+                CommandLineInvoking?.Invoke();
                 tempPipeline.InvokeAsync();
                 if ((options & ExecutionOptions.ReadInputObjects) > 0 && Console.IsInputRedirected)
                 {
@@ -264,6 +275,7 @@ namespace Microsoft.PowerShell
             {
                 // Once we have the results, or an exception is thrown, we throw away the pipeline.
 
+                LastPipelineState = tempPipeline.PipelineStateInfo;
                 _parent.ui.ResetProgress();
                 CurrentExecutor = oldCurrent;
                 Reset();
@@ -316,6 +328,7 @@ namespace Microsoft.PowerShell
         {
             Dbg.Assert(!string.IsNullOrEmpty(command), "command should have a value");
 
+            LastPipelineState = null;
             Pipeline tempPipeline = CreatePipeline(command, (options & ExecutionOptions.AddToHistory) > 0);
 
             return ExecuteCommandHelper(tempPipeline, out exceptionThrown, options);
@@ -398,6 +411,8 @@ namespace Microsoft.PowerShell
             try
             {
                 // blocks until all results are retrieved.
+                CommandLineCancellation.ThrowIfCancellationRequested();
+                CommandLineInvoking?.Invoke();
                 results = tempPipeline.Invoke();
             }
             catch (Exception e)
@@ -408,6 +423,7 @@ namespace Microsoft.PowerShell
             {
                 // Once we have the results, or an exception is thrown, we throw away the pipeline.
 
+                LastPipelineState = tempPipeline.PipelineStateInfo;
                 _parent.ui.ResetProgress();
                 CurrentExecutor = oldCurrent;
                 Reset();
@@ -559,7 +575,7 @@ namespace Microsoft.PowerShell
         /// Cancels execution of the current instance. Does nothing if the current instance is not running. Called in
         /// response to a break handler, by the static Executor.Cancel method.
         /// </summary>
-        private void Cancel()
+        internal void Cancel()
         {
             // if there's a pipeline running, stop it.
 

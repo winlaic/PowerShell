@@ -543,6 +543,8 @@ namespace Microsoft.PowerShell
 
             lock (host.hostGlobalLock)
             {
+                bool lifecycleCancellation = host._activeCommandLine != null && !host.IsNested && !host.InDebugMode;
+                Executor cancellationTarget = lifecycleCancellation ? host._activeCommandLine.RequestCancellation() : null;
                 bht = host._breakHandlerThread;
                 if (!host.ShouldEndSession && shouldEndSession)
                 {
@@ -558,14 +560,14 @@ namespace Microsoft.PowerShell
                 {
                     // we're not already running HandleBreak on a separate thread, so run it now.
 
-                    host._breakHandlerThread = new Thread(new ThreadStart(ConsoleHost.HandleBreak));
+                    host._breakHandlerThread = new Thread(() => HandleBreak(lifecycleCancellation, cancellationTarget));
                     host._breakHandlerThread.Name = "ConsoleHost.HandleBreak";
                     host._breakHandlerThread.Start();
                 }
             }
         }
 
-        private static void HandleBreak()
+        private static void HandleBreak(bool lifecycleCancellation, Executor cancellationTarget)
         {
             ConsoleHost consoleHost = s_theConsoleHost;
             if (consoleHost != null)
@@ -588,7 +590,12 @@ namespace Microsoft.PowerShell
                 else
                 {
                     // Cancel the reconnected debugged running pipeline command.
-                    if (!StopPipeline(consoleHost.runningCmd))
+                    if (lifecycleCancellation)
+                    {
+                        // Target the executor captured at signal receipt, never a later phase.
+                        cancellationTarget?.Cancel();
+                    }
+                    else if (!StopPipeline(consoleHost.runningCmd))
                     {
                         Executor.CancelCurrentExecutor();
                     }
@@ -1393,6 +1400,7 @@ namespace Microsoft.PowerShell
                         }
                     }
 
+                    CommandLineHooks.Clear();
                     _runspaceRef = null;
                     ui = null;
                 }
@@ -1813,6 +1821,7 @@ namespace Microsoft.PowerShell
 
                 Runspace.PrimaryRunspace = consoleRunspace;
                 _runspaceRef = new RunspaceRef(consoleRunspace);
+                consoleRunspace.ExecutionContext.EngineSessionState.SynchronizeProcessCurrentDirectory();
 
                 if (psReadlineFailed)
                 {
@@ -2597,6 +2606,7 @@ namespace Microsoft.PowerShell
 
                 Dbg.Assert(ui != null, "Host.UI should return an instance.");
 
+                using IDisposable suspendedExitCodes = inputLoopIsNested ? SuspendCommandLineExitCodes(_parent) : null;
                 bool inBlockMode = false;
                 // Use nullable so that we don't evaluate suggestions at startup.
                 bool? previousResponseWasEmpty = null;
@@ -2762,7 +2772,12 @@ namespace Microsoft.PowerShell
                             }
 #endif
 
-                            if (_parent.IsRunningAsync && !_parent.IsNested)
+                            using CommandLineExecution commandLine = CommandLineExecution.Start(_parent, line, inputLoopIsNested);
+                            if (commandLine != null)
+                            {
+                                commandLine.Execute(_exec, out e);
+                            }
+                            else if (_parent.IsRunningAsync && !_parent.IsNested)
                             {
                                 _exec.ExecuteCommandAsync(line, out e, Executor.ExecutionOptions.AddOutputter | Executor.ExecutionOptions.AddToHistory);
                             }
@@ -2779,6 +2794,8 @@ namespace Microsoft.PowerShell
                             }
 
                             bht?.Join();
+
+                            commandLine?.Complete(e);
 
                             // Once the pipeline has been executed, we toss any outstanding progress data and
                             // take down the display.

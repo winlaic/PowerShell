@@ -237,6 +237,7 @@ namespace System.Management.Automation
             if (setExitCode)
             {
                 _context.SetVariable(SpecialVariables.LastExitCodeVarPath, exitCode);
+                _context.ConsoleCommandLineExitCodes?.RecordScript(exitCode);
             }
 
             module.ImplementingAssembly = sb.AssemblyDefiningPSTypes;

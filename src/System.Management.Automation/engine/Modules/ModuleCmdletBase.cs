@@ -5935,6 +5935,7 @@ namespace Microsoft.PowerShell.Commands
                         {
                             int exitCode = (int)ee.Argument;
                             Context.SetVariable(SpecialVariables.LastExitCodeVarPath, exitCode);
+                            Context.ConsoleCommandLineExitCodes?.RecordScript(exitCode);
                         }
                     }
                 }

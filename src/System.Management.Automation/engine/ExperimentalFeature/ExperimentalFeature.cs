@@ -21,6 +21,7 @@ namespace System.Management.Automation
 
         internal const string EngineSource = "PSEngine";
         internal const string PSSerializeJSONLongEnumAsNumber = nameof(PSSerializeJSONLongEnumAsNumber);
+        internal const string PSNativeCommandThrowOnNonZeroExit = nameof(PSNativeCommandThrowOnNonZeroExit);
         internal const string PSProfileDSCResource = "PSProfileDSCResource";
 
         #endregion
@@ -104,6 +105,12 @@ namespace System.Management.Automation
                     name: "PSFileSystemProviderV2",
                     description: "Replace the old FileSystemProvider with cleaner design and faster code"),
                 */
+                new ExperimentalFeature(
+                    name: PSNativeCommandThrowOnNonZeroExit,
+                    description: "Throw a terminating error when a native command exits with a non-zero code."),
+                new ExperimentalFeature(
+                    name: "PSConsoleCommandLineHooks",
+                    description: "Synchronous lifecycle hooks for complete local console command lines."),
                 new ExperimentalFeature(
                     name: "PSLoadAssemblyFromNativeCode",
                     description: "Expose an API to allow assembly loading from native code"),

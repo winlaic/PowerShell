@@ -1142,6 +1142,7 @@ namespace System.Management.Automation
                     }
 
                     this.Command.Context.SetVariable(SpecialVariables.LastExitCodeVarPath, _nativeProcess.ExitCode);
+                    this.Command.Context.ConsoleCommandLineExitCodes?.RecordNative(_nativeProcess.ExitCode);
                     if (_nativeProcess.ExitCode == 0)
                     {
                         return;
@@ -1149,32 +1150,38 @@ namespace System.Management.Automation
 
                     this.commandRuntime.PipelineProcessor.ExecutionFailed = true;
 
-                    // We send telemetry information only if the feature is enabled.
-                    // This shouldn't be done once, because it's a run-time check we should send telemetry every time.
-                    // Report on the following conditions:
-                    // - The variable is not present
-                    // - The value is not set (variable is null)
-                    // - The value is set to true or false
-                    bool useDefaultSetting;
-                    bool nativeErrorActionPreferenceSetting = Command.Context.GetBooleanPreference(
-                        SpecialVariables.PSNativeCommandUseErrorActionPreferenceVarPath,
-                        defaultPref: false,
-                        out useDefaultSetting);
-
-                    // The variable is unset
-                    if (useDefaultSetting)
+                    // The experimental policy affects only native exit failures, without
+                    // changing preferences for ordinary PowerShell errors.
+                    bool throwOnNonZeroExit = ExperimentalFeature.IsEnabled(ExperimentalFeature.PSNativeCommandThrowOnNonZeroExit);
+                    if (!throwOnNonZeroExit)
                     {
-                        ApplicationInsightsTelemetry.SendExperimentalUseData("PSNativeCommandErrorActionPreference", "unset");
-                        return;
-                    }
+                        // We send telemetry information only if the feature is enabled.
+                        // This shouldn't be done once, because it's a run-time check we should send telemetry every time.
+                        // Report on the following conditions:
+                        // - The variable is not present
+                        // - The value is not set (variable is null)
+                        // - The value is set to true or false
+                        bool useDefaultSetting;
+                        bool nativeErrorActionPreferenceSetting = Command.Context.GetBooleanPreference(
+                            SpecialVariables.PSNativeCommandUseErrorActionPreferenceVarPath,
+                            defaultPref: false,
+                            out useDefaultSetting);
 
-                    // Send the value that was set.
-                    ApplicationInsightsTelemetry.SendExperimentalUseData("PSNativeCommandErrorActionPreference", nativeErrorActionPreferenceSetting.ToString());
+                        // The variable is unset
+                        if (useDefaultSetting)
+                        {
+                            ApplicationInsightsTelemetry.SendExperimentalUseData("PSNativeCommandErrorActionPreference", "unset");
+                            return;
+                        }
 
-                    // if it was explicitly set to false, return
-                    if (!nativeErrorActionPreferenceSetting)
-                    {
-                        return;
+                        // Send the value that was set.
+                        ApplicationInsightsTelemetry.SendExperimentalUseData("PSNativeCommandErrorActionPreference", nativeErrorActionPreferenceSetting.ToString());
+
+                        // if it was explicitly set to false, return
+                        if (!nativeErrorActionPreferenceSetting)
+                        {
+                            return;
+                        }
                     }
 
                     const string errorId = nameof(CommandBaseStrings.ProgramExitedWithNonZeroCode);
@@ -1198,7 +1205,9 @@ namespace System.Management.Automation
                         errorId);
 
                     var errorRecord = new ErrorRecord(exception, errorId, ErrorCategory.NotSpecified, targetObject: Path);
-                    this.commandRuntime._WriteErrorSkipAllowCheck(errorRecord);
+                    this.commandRuntime._WriteErrorSkipAllowCheck(
+                        errorRecord,
+                        actionPreference: throwOnNonZeroExit ? ActionPreference.Stop : null);
                 }
             }
             catch (Win32Exception e)

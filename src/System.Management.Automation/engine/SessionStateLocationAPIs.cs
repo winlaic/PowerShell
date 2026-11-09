@@ -8,6 +8,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Management.Automation.Internal;
 using System.Management.Automation.Provider;
+using System.Management.Automation.Runspaces;
 using Dbg = System.Management.Automation;
 
 namespace System.Management.Automation
@@ -18,6 +19,34 @@ namespace System.Management.Automation
     internal sealed partial class SessionStateInternal
     {
         #region Current working directory/drive
+
+        /// <summary>
+        /// Synchronizes the Linux console runspace's filesystem location with process state.
+        /// Other runspaces must not change the process-wide directory or environment.
+        /// </summary>
+        internal void SynchronizeProcessCurrentDirectory()
+        {
+            Runspace primaryRunspace = Runspace.PrimaryRunspace;
+            if (!Platform.IsLinux || primaryRunspace == null ||
+                !ReferenceEquals(ExecutionContext.CurrentRunspace, primaryRunspace))
+            {
+                return;
+            }
+
+            PathInfo location = CurrentLocation;
+            if (location.Provider.ImplementingType != typeof(Microsoft.PowerShell.Commands.FileSystemProvider))
+            {
+                return;
+            }
+
+            string providerPath = location.ProviderPath;
+            if (!string.IsNullOrEmpty(providerPath))
+            {
+                // Change the directory first so a failed chdir leaves PWD untouched.
+                Environment.CurrentDirectory = providerPath;
+                Environment.SetEnvironmentVariable("PWD", providerPath);
+            }
+        }
 
         /// <summary>
         /// Gets the current monad namespace specific working location. If
@@ -553,7 +582,18 @@ namespace System.Management.Automation
                     "New working path = {0}",
                     path);
 
+                string previousLocation = CurrentDrive.CurrentLocation;
                 CurrentDrive.CurrentLocation = path;
+                try
+                {
+                    SynchronizeProcessCurrentDirectory();
+                }
+                catch
+                {
+                    CurrentDrive.CurrentLocation = previousLocation;
+                    CurrentDrive = previousWorkingDrive;
+                    throw;
+                }
             }
             else
             {

@@ -12,6 +12,11 @@
     <RuntimeIdentifiers>linux-x64;osx-x64;</RuntimeIdentifiers>
   </PropertyGroup>
 
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-x64'">
+    <!-- Reserve a 4 GiB GC region range; this does not cap total process memory. -->
+    <RuntimeHostConfigurationOption Include="System.GC.RegionRange" Value="4294967296" />
+  </ItemGroup>
+
   <ItemGroup>
     <Compile Include="..\powershell\Program.cs" Exclude="bin\**;obj\**;**\*.xproj;packages\**" />
     <Content Include="..\Modules\Unix\**\*;..\Modules\Shared\**\*" >

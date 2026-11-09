@@ -188,4 +188,10 @@ The current session does not support debugging; execution will continue.
   <data name="MissingMandatoryParameter" xml:space="preserve">
     <value>The '{0}' parameter is mandatory and must be specified when using the '{1}' parameter.</value>
   </data>
+  <data name="CommandLineHooksUnsupportedHost" xml:space="preserve">
+    <value>Console command line hooks require the primary local ConsoleHost runspace and the PSConsoleCommandLineHooks experimental feature.</value>
+  </data>
+  <data name="CommandLineHooksHandlerRequired" xml:space="preserve">
+    <value>Specify at least one Starting or Finished handler.</value>
+  </data>
 </root>

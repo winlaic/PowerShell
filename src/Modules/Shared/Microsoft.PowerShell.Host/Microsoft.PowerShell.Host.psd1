@@ -7,7 +7,8 @@ ModuleVersion="7.0.0.0"
 CompatiblePSEditions = @("Core")
 PowerShellVersion="3.0"
 FunctionsToExport = @()
-CmdletsToExport="Start-Transcript", "Stop-Transcript"
+CmdletsToExport="Start-Transcript", "Stop-Transcript",
+    "Register-PSConsoleCommandLineHook", "Get-PSConsoleCommandLineHook", "Unregister-PSConsoleCommandLineHook"
 AliasesToExport = @()
 NestedModules="Microsoft.PowerShell.ConsoleHost.dll"
 HelpInfoURI = 'https://aka.ms/powershell75-help'

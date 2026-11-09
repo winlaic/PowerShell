@@ -602,6 +602,7 @@ namespace System.Management.Automation
 
                 int exitCode = (int)ee.Argument;
                 this.Command.Context.SetVariable(SpecialVariables.LastExitCodeVarPath, exitCode);
+                this.Command.Context.ConsoleCommandLineExitCodes?.RecordScript(exitCode);
 
                 if (exitCode != 0)
                     this.commandRuntime.PipelineProcessor.ExecutionFailed = true;
