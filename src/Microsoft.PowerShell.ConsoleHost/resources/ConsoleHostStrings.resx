@@ -194,4 +194,7 @@ The current session does not support debugging; execution will continue.
   <data name="CommandLineHooksHandlerRequired" xml:space="preserve">
     <value>Specify at least one Starting or Finished handler.</value>
   </data>
+  <data name="DisableCoreDumpFailed" xml:space="preserve">
+    <value>Cannot disable core dumps using setrlimit: {0}</value>
+  </data>
 </root>

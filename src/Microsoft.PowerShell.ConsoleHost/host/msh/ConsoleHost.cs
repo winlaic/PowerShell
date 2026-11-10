@@ -118,6 +118,14 @@ namespace Microsoft.PowerShell
                 throw new ConsoleHostStartupException(ConsoleHostStrings.ShellCannotBeStartedWithConfigConflict);
             }
 
+#if UNIX
+            if (ExperimentalFeature.IsEnabled("PSDisableCoreDump") && !UnixCoreDumpPolicy.TryApply(out string coreDumpError))
+            {
+                Console.Error.WriteLine(StringUtil.Format(ConsoleHostStrings.DisableCoreDumpFailed, coreDumpError));
+                return ExitCodeInitFailure;
+            }
+#endif
+
             // Put pwsh executable home in front of PATH so that calling `pwsh` within `pwsh` always starts the same running version.
             string psExeHome = GetPSExecutableHome();
             string path = Environment.GetEnvironmentVariable("PATH");
