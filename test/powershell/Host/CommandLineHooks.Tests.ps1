@@ -1,7 +1,20 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-Describe 'Experimental console command line hooks' -Tags CI {
+# Windows resolves Documents through the user's known folder, which cannot be isolated
+# with a child environment variable. Do not modify that configuration or test against
+# an unexpected feature set. Unix children use their own XDG configuration directory.
+$skipForUserConfiguration = $false
+if ($IsWindows) {
+    $userSettings = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'PowerShell/powershell.config.json'
+    $skipForUserConfiguration = (Test-Path -LiteralPath $userSettings) -and
+        @((Get-Content -LiteralPath $userSettings -Raw | ConvertFrom-Json).ExperimentalFeatures | Where-Object { $_ }).Count -gt 0
+    if ($skipForUserConfiguration) {
+        Write-Verbose 'Command line hook tests require a Windows test account without CurrentUser experimental features.' -Verbose
+    }
+}
+
+Describe 'Experimental console command line hooks' -Tags CI -Skip:$skipForUserConfiguration {
     BeforeAll {
         $powershell = Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })
         $enabledSettings = Join-Path $TestDrive 'enabled.json'
@@ -87,6 +100,10 @@ $Error.Clear()
             $startInfo.RedirectStandardInput = $true
             $startInfo.RedirectStandardOutput = $true
             $startInfo.RedirectStandardError = $true
+            if (!$IsWindows) {
+                $startInfo.Environment['XDG_CONFIG_HOME'] = Join-Path $TestDrive 'config'
+                $startInfo.Environment['XDG_CACHE_HOME'] = Join-Path $TestDrive 'cache'
+            }
             $startInfo.Environment['HOOK_TEST_FILE'] = $eventsFile
             $startInfo.Environment['HOOK_TEST_GATE'] = $gateFile
             $startInfo.Environment['HOOK_TEST_MODE'] = $Mode
@@ -324,6 +341,10 @@ $Error.Clear()
         $info.UseShellExecute = $false
         $info.RedirectStandardOutput = $true
         $info.RedirectStandardError = $true
+        if (!$IsWindows) {
+            $info.Environment['XDG_CONFIG_HOME'] = Join-Path $TestDrive 'config'
+            $info.Environment['XDG_CACHE_HOME'] = Join-Path $TestDrive 'cache'
+        }
         foreach ($a in @('-SettingsFile', $enabledSettings, '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', 'try { Register-PSConsoleCommandLineHook -Name invalid -Starting {} -ErrorAction Stop } catch { "REJECTED:$($_.FullyQualifiedErrorId)" }')) { $info.ArgumentList.Add($a) }
         $p = [Diagnostics.Process]::Start($info)
         try {

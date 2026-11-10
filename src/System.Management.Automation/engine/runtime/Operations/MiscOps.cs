@@ -1680,6 +1680,7 @@ namespace System.Management.Automation
         {
             if (localPipeline is not null)
             {
+                localPipeline.Runspace.ExecutionContext.ForegroundNativeProcesses?.EnterCleanup();
                 bool oldIsStopping = localPipeline.Stopper.IsStopping;
                 localPipeline.Stopper.IsStopping = false;
                 return oldIsStopping;
@@ -1693,6 +1694,7 @@ namespace System.Management.Automation
             if (localPipeline is not null)
             {
                 localPipeline.Stopper.IsStopping = oldIsStopping;
+                localPipeline.Runspace.ExecutionContext.ForegroundNativeProcesses?.ExitCleanup();
             }
         }
 

@@ -1,7 +1,19 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-Describe 'Experimental native command nonzero exit policy' -Tags CI {
+# Windows uses the Documents known folder for CurrentUser settings. Skip conflicting
+# configurations instead of modifying the real user's file; Unix children use XDG isolation.
+$skipForUserConfiguration = $false
+if ($IsWindows) {
+    $userSettings = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'PowerShell/powershell.config.json'
+    $skipForUserConfiguration = (Test-Path -LiteralPath $userSettings) -and
+        @((Get-Content -LiteralPath $userSettings -Raw | ConvertFrom-Json).ExperimentalFeatures | Where-Object { $_ }).Count -gt 0
+    if ($skipForUserConfiguration) {
+        Write-Verbose 'Native exit policy tests require a Windows test account without CurrentUser experimental features.' -Verbose
+    }
+}
+
+Describe 'Experimental native command nonzero exit policy' -Tags CI -Skip:$skipForUserConfiguration {
     BeforeAll {
         $powershell = Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })
         $exe = (Get-Command $(if ($IsWindows) { 'testexe.exe' } else { 'testexe' }) -CommandType Application).Source
@@ -17,6 +29,10 @@ Describe 'Experimental native command nonzero exit policy' -Tags CI {
             $info.UseShellExecute = $false
             $info.RedirectStandardOutput = $true
             $info.RedirectStandardError = $true
+            if (!$IsWindows) {
+                $info.Environment['XDG_CONFIG_HOME'] = Join-Path $TestDrive 'config'
+                $info.Environment['XDG_CACHE_HOME'] = Join-Path $TestDrive 'cache'
+            }
             $settings = if ($Enabled) { $enabledSettings } else { $disabledSettings }
             foreach ($a in @('-SettingsFile', $settings, '-NoLogo', '-NoProfile')) { $info.ArgumentList.Add($a) }
             if ($File) {

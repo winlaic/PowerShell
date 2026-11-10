@@ -1335,7 +1335,6 @@ namespace Microsoft.PowerShell
         {
 #if UNIX
             Console.CancelKeyPress += new ConsoleCancelEventHandler(MyBreakHandler);
-            BindForceKillHandler();
 #else
             breakHandlerGcHandle = GCHandle.Alloc(new ConsoleControl.BreakHandler(MyBreakHandler));
             ConsoleControl.AddBreakHandler((ConsoleControl.BreakHandler)breakHandlerGcHandle.Target);
@@ -2619,6 +2618,11 @@ namespace Microsoft.PowerShell
                 Dbg.Assert(ui != null, "Host.UI should return an instance.");
 
                 using IDisposable suspendedExitCodes = inputLoopIsNested ? SuspendCommandLineExitCodes(_parent) : null;
+#if UNIX
+                // Startup commands and profiles retain normal Unix job control. Nested loops
+                // share the main loop's registration without owning its lifetime.
+                using IDisposable forceKillHandler = inputLoopIsNested ? null : _parent.BindForceKillHandler();
+#endif
                 bool inBlockMode = false;
                 // Use nullable so that we don't evaluate suggestions at startup.
                 bool? previousResponseWasEmpty = null;

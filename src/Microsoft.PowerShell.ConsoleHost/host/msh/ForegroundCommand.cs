@@ -15,7 +15,7 @@ namespace Microsoft.PowerShell
 #if UNIX
         private PosixSignalRegistration _forceKillSignal;
 
-        private void BindForceKillHandler()
+        private IDisposable BindForceKillHandler()
         {
             if ((Platform.IsLinux || Platform.IsMacOS) && !s_cpp.NonInteractive &&
                 ExperimentalFeature.IsEnabled("PSConsoleForceKillOnCtrlZ"))
@@ -33,6 +33,8 @@ namespace Microsoft.PowerShell
                     }
                 });
             }
+
+            return _forceKillSignal;
         }
 #endif
 

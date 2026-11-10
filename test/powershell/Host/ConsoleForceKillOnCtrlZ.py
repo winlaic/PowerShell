@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import pty
 import select
+import shlex
 import signal
 import struct
 import subprocess
@@ -45,13 +46,18 @@ if mode == 'terminal':
     state[3] &= ~termios.ECHO
     termios.tcsetattr(0, termios.TCSANOW, state)
 Path(directory, mode + '.json').write_text(json.dumps({'pid':os.getpid(),'pgid':os.getpgrp()}))
+if mode == 'cleanup':
+    while not Path(directory, 'release-cleanup').exists():
+        time.sleep(.01)
+    sys.exit(0)
 while True:
     time.sleep(.1)
 """
 
 
 class Console:
-    def __init__(self, enabled=True, hooks=False, psreadline=False, noninteractive=False):
+    def __init__(self, enabled=True, hooks=False, psreadline=False, noninteractive=False,
+                 native_exit_policy=False, startup=None, noexit=False):
         self.temporary = tempfile.TemporaryDirectory(prefix="pwsh-ctrl-z-test-")
         self.directory = Path(self.temporary.name)
         self.helper = self.directory / "helper.py"
@@ -60,7 +66,9 @@ class Console:
         settings = self.directory / "settings.json"
         features = [FEATURE] if enabled else []
         if hooks:
-            features += ["PSConsoleCommandLineHooks", "PSNativeCommandThrowOnNonZeroExit"]
+            features.append("PSConsoleCommandLineHooks")
+        if native_exit_policy:
+            features.append("PSNativeCommandThrowOnNonZeroExit")
         settings.write_text(json.dumps({"ExperimentalFeatures": features}))
         bootstrap = self.directory / "bootstrap.ps1"
         script = "" if psreadline else "Remove-Module PSReadLine -ErrorAction Ignore\n"
@@ -73,21 +81,35 @@ Register-PSConsoleCommandLineHook -Name test -Finished {
 } | Out-Null
 """.replace("EVENTS", quote(self.events))
         script += "[IO.File]::WriteAllText(" + quote(self.directory / "shell.pid") + ", [string]$PID)\n"
+        if startup:
+            script += self.native("startup") + "\n"
         bootstrap.write_text(script)
+        config_home = self.directory / "config"
+        if startup == "profile":
+            profile = config_home / "powershell" / "Microsoft.PowerShell_profile.ps1"
+            profile.parent.mkdir(parents=True)
+            profile.write_text(script)
         self.groups = set()
         self.transcript = ""
         self.pid, self.fd = pty.fork()
         if self.pid == 0:
             os.environ["PS1"] = "PARENT_TEST> "
             os.environ["TERM"] = "xterm"
+            # -SettingsFile replaces AllUsers settings; CurrentUser settings take precedence.
+            os.environ["XDG_CONFIG_HOME"] = str(config_home)
+            os.environ["XDG_CACHE_HOME"] = str(self.directory / "cache")
             os.execv("/bin/bash", ["bash", "--noprofile", "--norc", "-i"])
         fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 100, 0, 0))
         try:
             self.wait_output("PARENT_TEST> ")
-            args = [PWSH, "-SettingsFile", str(settings), "-NoLogo", "-NoProfile", "-NoExit", "-File", str(bootstrap)]
+            args = [PWSH, "-SettingsFile", str(settings), "-NoLogo"]
+            if startup != "profile":
+                args.append("-NoProfile")
+                if not startup or noexit:
+                    args.append("-NoExit")
+                args += ["-Command", script] if startup == "command" else ["-File", str(bootstrap)]
             if noninteractive:
                 args.insert(1, "-NonInteractive")
-            import shlex
             self.send(" ".join(shlex.quote(arg) for arg in args))
             self.wait_file("shell.pid")
             self.shell_pid = int((self.directory / "shell.pid").read_text())
@@ -95,7 +117,9 @@ Register-PSConsoleCommandLineHook -Name test -Finished {
             if self.group in (os.getpgrp(), os.getpgid(self.pid)):
                 raise AssertionError("Test console did not get an isolated process group")
             self.groups.add(self.group)
-            if "CTRLZ_TEST> " not in self.transcript:
+            if startup:
+                self.wait_file("startup.json")
+            elif "CTRLZ_TEST> " not in self.transcript:
                 self.wait_output("CTRLZ_TEST> ")
         except BaseException:
             self.close()
@@ -189,6 +213,28 @@ Register-PSConsoleCommandLineHook -Name test -Finished {
 
 
 class ForceKillTests(unittest.TestCase):
+    def test_startup_preserves_job_control(self):
+        for startup in ("command", "file", "profile"):
+            for noexit in ((False, True) if startup != "profile" else (False,)):
+                with self.subTest(startup=startup, noexit=noexit), Console(startup=startup, noexit=noexit) as console:
+                    console.ctrl_z()
+                    console.wait_output("PARENT_TEST> ")
+                    # Resume the same process to check that -NoExit/profile startup subsequently
+                    # enters the input loop and installs the force-termination handler.
+                    console.send("fg")
+                    child = json.loads((console.directory / "startup.json").read_text())["pid"]
+                    os.kill(child, signal.SIGKILL)
+                    if startup == "profile" or noexit:
+                        console.wait_output("CTRLZ_TEST> ")
+                        console.send(console.native("plain"))
+                        console.wait_file("plain.json")
+                        console.ctrl_z()
+                        console.wait_output("CTRLZ_TEST> ")
+                        console.assert_dead("plain")
+                        console.next_command()
+                    else:
+                        console.wait_output("PARENT_TEST> ")
+
     def test_disabled_preserves_parent_shell_job_control(self):
         with Console(enabled=False) as console:
             console.send(console.native("plain"))
@@ -215,6 +261,36 @@ class ForceKillTests(unittest.TestCase):
             self.assertFalse((console.directory / "unreachable").exists())
             console.next_command()
 
+    def test_force_kill_stops_following_statements_without_native_exit_policy(self):
+        for hooks in (False, True):
+            with self.subTest(hooks=hooks), Console(hooks=hooks) as console:
+                # Repeat with readiness gates, without a preceding Ctrl+C or the native-exit
+                # policy: either would independently stop the script and conceal the race.
+                for attempt in range(10):
+                    mode = "plain" + str(attempt)
+                    unreachable = "unreachable" + str(attempt)
+                    caught = "caught" + str(attempt)
+                    after = "after" + str(attempt)
+                    finished = "finally" + str(attempt)
+                    console.send("try { " + console.native(mode) + "; " + console.marker(unreachable) +
+                                 " } catch { " + console.marker(caught) +
+                                 " } finally { " + console.marker(finished) + " }; " + console.marker(after))
+                    console.wait_file(mode + ".json")
+                    console.ctrl_z()
+                    console.wait_output("CTRLZ_TEST> ")
+                    console.assert_dead(mode)
+                    self.assertFalse((console.directory / unreachable).exists())
+                    self.assertFalse((console.directory / caught).exists())
+                    self.assertFalse((console.directory / after).exists())
+                    self.assertTrue((console.directory / finished).exists())
+                console.send("[IO.File]::WriteAllText(" + quote(console.directory / "status") + ", [string]$?)")
+                console.wait_file("status")
+                self.assertEqual("False", (console.directory / "status").read_text())
+                console.next_command()
+                if hooks:
+                    records = [json.loads(line) for line in console.events.read_text().splitlines()]
+                    self.assertEqual(["Cancelled"] * 10, [r["Outcome"] for r in records[:10]])
+
     def test_terminates_native_pipeline(self):
         with Console() as console:
             console.send(console.native("left") + " | " + console.native("right"))
@@ -224,6 +300,48 @@ class ForceKillTests(unittest.TestCase):
             console.wait_output("CTRLZ_TEST> ")
             console.assert_dead("left")
             console.assert_dead("right")
+            console.next_command()
+
+    def test_cancellation_preserves_native_commands_in_finally_and_clean(self):
+        for hooks in (False, True):
+            for cleanup in ("finally", "clean"):
+                with self.subTest(hooks=hooks, cleanup=cleanup), Console(hooks=hooks) as console:
+                    # Nest cleanup scopes and include a native pipeline. A readiness gate
+                    # keeps cleanup active while the asynchronous termination worker finishes.
+                    cleanup_script = ("try { & /bin/echo cleanup | & /bin/cat | Out-Null } finally { " +
+                                      console.native("cleanup") + " }; " + console.marker("cleaned"))
+                    if cleanup == "finally":
+                        command = "try { " + console.native("plain") + " } finally { " + cleanup_script + " }"
+                    else:
+                        command = ("function Invoke-CleanupTest { process { " + console.native("plain") +
+                                   " } clean { " + cleanup_script + " } }; Invoke-CleanupTest")
+                    # A completed cleanup scope must not exempt the next native command
+                    # from force termination.
+                    console.send("try {} finally { & /bin/true }; " + command + "; " + console.marker("unreachable"))
+                    console.wait_file("plain.json")
+                    console.ctrl_z()
+                    console.wait_file("cleanup.json")
+                    self.assertNotIn("CTRLZ_TEST> ", console.read(.2))
+                    (console.directory / "release-cleanup").write_text("release")
+                    console.wait_output("CTRLZ_TEST> ")
+                    console.assert_dead("plain")
+                    self.assertTrue((console.directory / "cleaned").exists())
+                    self.assertFalse((console.directory / "unreachable").exists())
+                    console.next_command()
+                    if hooks:
+                        records = [json.loads(line) for line in console.events.read_text().splitlines()]
+                        self.assertEqual("Cancelled", records[0]["Outcome"])
+
+    def test_first_cancellation_inside_finally_stops_native_command(self):
+        with Console() as console:
+            console.send("try {} finally { " + console.native("plain") + "; " +
+                         console.marker("unreachable") + " }; " + console.marker("after"))
+            console.wait_file("plain.json")
+            console.ctrl_z()
+            console.wait_output("CTRLZ_TEST> ")
+            console.assert_dead("plain")
+            self.assertFalse((console.directory / "unreachable").exists())
+            self.assertFalse((console.directory / "after").exists())
             console.next_command()
 
     def test_terminates_descendants(self):
@@ -267,7 +385,7 @@ class ForceKillTests(unittest.TestCase):
             console.next_command()
 
     def test_hooks_report_cancelled_with_native_exit_policy(self):
-        with Console(hooks=True) as console:
+        with Console(hooks=True, native_exit_policy=True) as console:
             console.send(console.native("plain", "; " + console.marker("unreachable")))
             console.wait_file("plain.json")
             console.ctrl_z()

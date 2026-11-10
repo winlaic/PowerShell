@@ -25,8 +25,11 @@ Only processes launched through the native-command engine during the active
 primary console submission are registered. Jobs, parallel runspaces, remoting,
 debugger/nested prompts, startup/profile scripts, direct `-Command` or `-File`
 execution, and processes launched through APIs such as `Start-Process` are not
-registered for force termination. NonInteractive sessions do not register the
-signal handler. At an idle prompt or inside an excluded nested/debugger context,
+registered for force termination. The signal handler is installed only while the
+main input loop is running. Startup/profile scripts and direct `-Command`/`-File`
+execution retain normal Unix suspension, including before the input loop starts
+with `-NoExit`. NonInteractive sessions do not register the handler.
+At an idle prompt or inside an excluded nested/debugger context,
 an enabled handler suppresses suspension without terminating processes.
 
 Stopping the pipeline uses PowerShell's existing cooperative stop mechanism.
@@ -47,7 +50,15 @@ application's alternate screen or undo every terminal escape sequence. Signals
 capture the active submission/pipeline; an asynchronous worker never looks up
 whichever command happens to be running later. Repeated signals for the same
 submission are idempotent, and completion joins its termination worker before
-accepting another command.
+accepting another command. Native completion also checks the submission's
+cancellation request, so killing a process cannot resume subsequent script
+statements before the asynchronous pipeline stop takes effect. PowerShell
+`finally` and `clean` blocks retain their normal cancellation cleanup behavior,
+including native commands launched by those blocks after cancellation. These
+cleanup commands are allowed to finish, so a blocked cleanup command can delay
+returning to the prompt. If the first Ctrl+Z arrives while a native command is
+already running in a `finally` or `clean` block, that command is still part of
+the active submission and is forcefully terminated.
 
 With `PSConsoleCommandLineHooks` enabled, cancellation during user execution
 reports `Outcome = Cancelled`. Native exit codes remain observations rather than

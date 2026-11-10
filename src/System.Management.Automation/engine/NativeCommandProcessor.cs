@@ -802,7 +802,10 @@ namespace System.Management.Automation
                         _nativeProcess = new Process() { StartInfo = startInfo };
                         _nativeProcess.Start();
                         _foregroundNativeProcesses = Command.Context.ForegroundNativeProcesses;
-                        _foregroundNativeProcesses?.Register(_nativeProcess);
+                        if (_foregroundNativeProcesses != null && !_foregroundNativeProcesses.Register(_nativeProcess))
+                        {
+                            _foregroundNativeProcesses = null;
+                        }
                     }
                     catch (Win32Exception)
                     {
@@ -1147,6 +1150,11 @@ namespace System.Management.Automation
 
                     this.Command.Context.SetVariable(SpecialVariables.LastExitCodeVarPath, _nativeProcess.ExitCode);
                     this.Command.Context.ConsoleCommandLineExitCodes?.RecordNative(_nativeProcess.ExitCode);
+
+                    // Killing a foreground process can release WaitForExit before the asynchronous
+                    // pipeline stop reaches the engine. Do not resume the script in that interval.
+                    _foregroundNativeProcesses?.ThrowIfTerminationRequested();
+
                     if (_nativeProcess.ExitCode == 0)
                     {
                         return;

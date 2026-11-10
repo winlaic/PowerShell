@@ -13,18 +13,45 @@ namespace System.Management.Automation
         private readonly object _sync = new object();
         private readonly HashSet<Process> _processes = new HashSet<Process>();
         private bool _terminating;
+        private int _cleanupDepth;
 
-        internal void Register(Process process)
+        internal bool Register(Process process)
         {
             lock (_sync)
             {
                 if (_terminating)
                 {
+                    // The engine suspends pipeline stopping while running finally/clean blocks.
+                    // Native commands launched by that cleanup must not inherit the earlier
+                    // termination request or join the set being killed by its worker.
+                    if (_cleanupDepth > 0)
+                    {
+                        return false;
+                    }
+
                     Kill(process);
                     throw new PipelineStoppedException();
                 }
 
                 _processes.Add(process);
+                return true;
+            }
+        }
+
+        internal void EnterCleanup()
+        {
+            lock (_sync)
+            {
+                _cleanupDepth++;
+            }
+        }
+
+        internal void ExitCleanup()
+        {
+            lock (_sync)
+            {
+                Diagnostics.Assert(_cleanupDepth > 0, "Cleanup scopes must be balanced.");
+                _cleanupDepth--;
             }
         }
 
@@ -41,6 +68,17 @@ namespace System.Management.Automation
             lock (_sync)
             {
                 _terminating = true;
+            }
+        }
+
+        internal void ThrowIfTerminationRequested()
+        {
+            lock (_sync)
+            {
+                if (_terminating)
+                {
+                    throw new PipelineStoppedException();
+                }
             }
         }
 
