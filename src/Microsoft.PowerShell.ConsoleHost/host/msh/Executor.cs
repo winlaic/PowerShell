@@ -65,6 +65,11 @@ namespace Microsoft.PowerShell
 
         internal PipelineStateInfo LastPipelineState { get; private set; }
 
+        internal ConsoleHost.ForegroundCommandExecution ForegroundCommand { get; set; }
+
+        // Signal receipt must not wait for Cancel(), which can be blocked inside Stop().
+        internal Pipeline PipelineAtSignalReceipt => Volatile.Read(ref _pipeline);
+
         #region async
 
         // called on the pipeline thread
@@ -218,6 +223,7 @@ namespace Microsoft.PowerShell
                 }
 
                 CommandLineCancellation.ThrowIfCancellationRequested();
+                ForegroundCommand?.BindPipeline(tempPipeline);
                 CommandLineInvoking?.Invoke();
                 tempPipeline.InvokeAsync();
                 if ((options & ExecutionOptions.ReadInputObjects) > 0 && Console.IsInputRedirected)
@@ -412,6 +418,7 @@ namespace Microsoft.PowerShell
             {
                 // blocks until all results are retrieved.
                 CommandLineCancellation.ThrowIfCancellationRequested();
+                ForegroundCommand?.BindPipeline(tempPipeline);
                 CommandLineInvoking?.Invoke();
                 results = tempPipeline.Invoke();
             }

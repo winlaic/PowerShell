@@ -521,6 +521,9 @@ namespace System.Management.Automation
         // Installed only for the user execution phase of one console submission.
         internal ConsoleCommandLineExitCodes ConsoleCommandLineExitCodes { get; set; }
 
+        // Scoped to one foreground console submission; absent in other runspaces.
+        internal ForegroundNativeProcesses ForegroundNativeProcesses { get; set; }
+
         // Isolates automatically recorded callback errors without replacing $Error itself.
         internal Action<object> ErrorRecordingOverride { get; set; }
 

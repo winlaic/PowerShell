@@ -610,6 +610,8 @@ namespace System.Management.Automation
         /// </summary>
         private Process _nativeProcess;
 
+        private ForegroundNativeProcesses _foregroundNativeProcesses;
+
         /// <summary>
         /// This is used for writing input to the process.
         /// </summary>
@@ -799,6 +801,8 @@ namespace System.Management.Automation
                     {
                         _nativeProcess = new Process() { StartInfo = startInfo };
                         _nativeProcess.Start();
+                        _foregroundNativeProcesses = Command.Context.ForegroundNativeProcesses;
+                        _foregroundNativeProcesses?.Register(_nativeProcess);
                     }
                     catch (Win32Exception)
                     {
@@ -1492,6 +1496,12 @@ namespace System.Management.Automation
         /// <param name="killBackgroundProcess">If set, also terminate background process.</param>
         private void CleanUp(bool killBackgroundProcess)
         {
+            if (_nativeProcess != null)
+            {
+                _foregroundNativeProcesses?.Unregister(_nativeProcess);
+                _foregroundNativeProcesses = null;
+            }
+
             // We need to call 'NotifyEndApplication' as appropriate during cleanup
             if (_hasNotifiedBeginApplication)
             {

@@ -1327,6 +1327,7 @@ namespace Microsoft.PowerShell
         {
 #if UNIX
             Console.CancelKeyPress += new ConsoleCancelEventHandler(MyBreakHandler);
+            BindForceKillHandler();
 #else
             breakHandlerGcHandle = GCHandle.Alloc(new ConsoleControl.BreakHandler(MyBreakHandler));
             ConsoleControl.AddBreakHandler((ConsoleControl.BreakHandler)breakHandlerGcHandle.Target);
@@ -1370,6 +1371,9 @@ namespace Microsoft.PowerShell
         {
             if (!_isDisposed)
             {
+#if UNIX
+                _forceKillSignal?.Dispose();
+#endif
 #if !UNIX
                 ConsoleControl.RemoveBreakHandler();
                 if (breakHandlerGcHandle.IsAllocated)
@@ -2772,6 +2776,7 @@ namespace Microsoft.PowerShell
                             }
 #endif
 
+                            using ForegroundCommandExecution foreground = ForegroundCommandExecution.Start(_parent, _exec, inputLoopIsNested);
                             using CommandLineExecution commandLine = CommandLineExecution.Start(_parent, line, inputLoopIsNested);
                             if (commandLine != null)
                             {
@@ -2795,6 +2800,7 @@ namespace Microsoft.PowerShell
 
                             bht?.Join();
 
+                            foreground?.Complete();
                             commandLine?.Complete(e);
 
                             // Once the pipeline has been executed, we toss any outstanding progress data and

@@ -106,6 +106,9 @@ namespace System.Management.Automation
                     description: "Replace the old FileSystemProvider with cleaner design and faster code"),
                 */
                 new ExperimentalFeature(
+                    name: "PSConsoleForceKillOnCtrlZ",
+                    description: "Force-stop the foreground console command on Ctrl+Z on Linux and macOS."),
+                new ExperimentalFeature(
                     name: PSNativeCommandThrowOnNonZeroExit,
                     description: "Throw a terminating error when a native command exits with a non-zero code."),
                 new ExperimentalFeature(

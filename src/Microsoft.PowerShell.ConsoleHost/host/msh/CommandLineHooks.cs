@@ -26,15 +26,22 @@ namespace Microsoft.PowerShell
         {
             private readonly System.Management.Automation.ExecutionContext _context;
             private readonly ConsoleCommandLineExitCodes _saved;
+            private readonly ForegroundNativeProcesses _savedForeground;
 
             internal ExitCodeSuspension(System.Management.Automation.ExecutionContext context)
             {
                 _context = context;
                 _saved = context.ConsoleCommandLineExitCodes;
                 context.ConsoleCommandLineExitCodes = null;
+                _savedForeground = context.ForegroundNativeProcesses;
+                context.ForegroundNativeProcesses = null;
             }
 
-            public void Dispose() => _context.ConsoleCommandLineExitCodes = _saved;
+            public void Dispose()
+            {
+                _context.ConsoleCommandLineExitCodes = _saved;
+                _context.ForegroundNativeProcesses = _savedForeground;
+            }
         }
 
         private static IDisposable SuspendCommandLineExitCodes(ConsoleHost host) =>
@@ -297,6 +304,7 @@ namespace Microsoft.PowerShell
                 object lastExitCode = lastExitVariable?.Value;
                 var previousSink = context.ErrorRecordingOverride;
                 var previousCodes = context.ConsoleCommandLineExitCodes;
+                var previousForeground = context.ForegroundNativeProcesses;
                 Action<Exception> failure = exception => _host.CommandLineHooks.Record(hook.Metadata.Id, _id, phase, "CallbackException", exception);
                 context.ErrorRecordingOverride = error =>
                 {
@@ -310,6 +318,7 @@ namespace Microsoft.PowerShell
                     }
                 };
                 context.ConsoleCommandLineExitCodes = null;
+                context.ForegroundNativeProcesses = null;
                 try
                 {
                     using Pipeline pipeline = _runspace.CreatePipeline();
@@ -357,6 +366,7 @@ namespace Microsoft.PowerShell
                     {
                         context.ErrorRecordingOverride = previousSink;
                         context.ConsoleCommandLineExitCodes = previousCodes;
+                        context.ForegroundNativeProcesses = previousForeground;
                         context.QuestionMarkVariableValue = success;
                         WaitForCancellation();
                         lock (_host.hostGlobalLock)
